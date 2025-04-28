@@ -3,14 +3,14 @@ from itertools import zip_longest
 import subprocess
 
 def main():
-    sim_folder =  Path("simulator/simulations/")
-    correct_output_folder = Path("simulator/correct_output/")
+    sim_folder =  Path("simulations/")
+    correct_output_folder = Path("correct_output/")
     output_folder = Path("outputs/")
 
     for sim_file in sim_folder.iterdir():
         correct_file = correct_output_folder / Path(sim_file.name).with_suffix(".txt")
         output_file = output_folder / Path(sim_file.name).with_suffix(".txt")
-        subprocess.run(["python", "simulator/simulator.py", sim_file, output_file])
+        subprocess.run(["python", "scheduler/simulator.py", sim_file, output_file])
 
         with open(output_file) as of, open(correct_file) as cf:
             for i, (out, expected) in enumerate(zip_longest(of, cf), start=1):
