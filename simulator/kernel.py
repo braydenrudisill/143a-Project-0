@@ -29,8 +29,8 @@ class Kernel:
     scheduling_algorithm: str
     ready_queue: deque[PCB] = field(default_factory=deque)
     waiting_queue: deque[PCB] = field(default_factory=deque)
-    running: PCB = 0
-    idle_pcb: PCB = 0
+    running: PCB = PCB(0)
+    idle_pcb: PCB = PCB(0)
 
     def new_process_arrived(self, new_process: PID, priority: int) -> PID:
         """Triggered every time a new process has arrived.
