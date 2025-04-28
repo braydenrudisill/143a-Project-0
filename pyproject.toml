@@ -1,0 +1,7 @@
+[project]
+name = "p0-scheduling"
+version = "0.1.0"
+description = "First Come First Served and Priority scheduling."
+readme = "README.md"
+requires-python = ">=3.10.12"
+dependencies = []
