@@ -1,0 +1,6 @@
+0.000ms : Process 1 arrived with priority 32
+
+0.340ms : Process 2 arrived with priority 32
+
+0.500ms : Process 3 arrived with priority 32
+
