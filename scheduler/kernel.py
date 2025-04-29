@@ -2,8 +2,8 @@
 # Group id: 3
 # Members: Brayden Rudisill, Rhea Jethvani
 
-from collections import deque
 from dataclasses import dataclass, field
+from heapq import heappush, heappop
 
 
 PID = int
@@ -12,11 +12,12 @@ PID = int
 """
 
 
-@dataclass
+@dataclass(order=True)
 class PCB:
     """Represents the PCB of processes.
     It is only here for your convenience and can be modified however you see fit.
     """
+    priority: int | None
     pid: PID
 
 
@@ -27,10 +28,10 @@ class Kernel:
         syscalls and interrupts.
     - DO NOT modify the name of this class or remove it."""
     scheduling_algorithm: str
-    ready_queue: deque[PCB] = field(default_factory=deque)
-    waiting_queue: deque[PCB] = field(default_factory=deque)
-    running: PCB = PCB(0)
-    idle_pcb: PCB = PCB(0)
+    ready_queue: list[PCB] = field(default_factory=list)
+    waiting_queue: list[PCB] = field(default_factory=list)
+    idle_pcb: PCB = PCB(None, 0)
+    running: PCB = idle_pcb
 
     def new_process_arrived(self, new_process: PID, priority: int) -> PID:
         """Triggered every time a new process has arrived.
@@ -38,21 +39,42 @@ class Kernel:
         - priority is the priority of new_process.
         - DO NOT rename or delete this method. DO NOT change its arguments.
         """
-        # TODO: Implement
+        new_pcb = PCB(priority, new_process)
+
+        if self.running is self.idle_pcb:
+            self.running = new_pcb
+        elif self.scheduling_algorithm == "Priority" and new_pcb < self.running:
+            self.add_to_queue(self.running)
+            self.running = new_pcb
+        else:
+            self.add_to_queue(new_pcb)
+
         return self.running.pid
+
+    def add_to_queue(self, pcb: PCB):
+        match self.scheduling_algorithm:
+            case "Priority":
+                heappush(self.ready_queue, pcb)
+            case "FCFS":
+                self.ready_queue.append(pcb)
 
     def syscall_exit(self) -> PID:
         """Triggered every time the current process performs an exit syscall.
         - DO NOT rename or delete this method. DO NOT change its arguments.
         """
-        # TODO: Implement
+        self.running = self.choose_next_process()
         return self.running.pid
 
     def syscall_set_priority(self, new_priority: int) -> PID:
         """Triggered when the currently running process requests to change its priority.
         - DO NOT rename or delete this method. DO NOT change its arguments.
         """
-        # TODO: Implement
+        self.running.priority = new_priority
+
+        if self.scheduling_algorithm == "Priority" and self.ready_queue[0] < self.running:
+            self.add_to_queue(self.running)
+            self.running = self.choose_next_process()
+
         return self.running.pid
 
     def choose_next_process(self):
@@ -63,8 +85,12 @@ class Kernel:
         """
         if len(self.ready_queue) == 0:
             return self.idle_pcb
-        
-        if self.scheduling_algorithm == "FCFS":
-            self.running = self.idle_pcb
-        elif self.scheduling_algorithm == "Priority":
-            self.running = self.idle_pcb
+
+        match self.scheduling_algorithm:
+            case "FCFS":
+                try:
+                    return self.ready_queue[0]
+                finally:
+                    self.ready_queue = self.ready_queue[1:]
+            case "Priority":
+                return heappop(self.ready_queue)
