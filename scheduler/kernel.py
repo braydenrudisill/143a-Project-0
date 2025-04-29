@@ -88,9 +88,6 @@ class Kernel:
 
         match self.scheduling_algorithm:
             case "FCFS":
-                try:
-                    return self.ready_queue[0]
-                finally:
-                    self.ready_queue = self.ready_queue[1:]
+                return self.ready_queue.pop(0)
             case "Priority":
                 return heappop(self.ready_queue)
