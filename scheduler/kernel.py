@@ -71,9 +71,10 @@ class Kernel:
         """
         self.running.priority = new_priority
 
-        if self.scheduling_algorithm == "Priority" and self.ready_queue[0] < self.running:
-            self.add_to_queue(self.running)
-            self.running = self.choose_next_process()
+        if self.scheduling_algorithm == "Priority":
+            if self.ready_queue and self.ready_queue[0] < self.running:
+                self.add_to_queue(self.running)
+                self.running = self.choose_next_process()
 
         return self.running.pid
 
