@@ -154,15 +154,19 @@ class Kernel:
     def syscall_semaphore_v(self, semaphore_id: int) -> PID:
         self.semaphores[semaphore_id] += 1
       # self.logger.log(f"{self.semaphores[semaphore_id]=}")
-      # self.logger.log(f"{self.ready_queue=}")
-      # self.logger.log(f"{self.running=}")
+      #   self.logger.log(f"{self.ready_queue=}")
+      #   self.logger.log(f"{self.running=}")
         if self.scheduling_algorithm == "Priority":
             self.sema_blocked[semaphore_id].sort()
+        elif self.scheduling_algorithm in {"RR", "FCFS"}:
+            self.sema_blocked[semaphore_id].sort(key = lambda p: p.pid)
+            # self.logger.log(f"SORTED: {self.sema_blocked[semaphore_id]}")
 
         if self.sema_blocked[semaphore_id]:
             unblocked = self.sema_blocked[semaphore_id].pop(0)
             if self.scheduling_algorithm == "Priority" and unblocked < self.running:
                 self.add_to_queue(self.running)
+                self.time_elapsed = 0
                 self.running = unblocked
             else:
                 self.add_to_queue(unblocked)
