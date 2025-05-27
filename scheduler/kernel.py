@@ -65,13 +65,16 @@ class Kernel:
             else:
                 self.bg_queue.append(new_pcb)
             if self.running == self.idle_pcb:
+                self.time_elapsed = 0
                 self.running = self.choose_next_process()
         elif self.running == self.idle_pcb:
             # self.logger.log(f"Was IDLE, now {new_pcb.pid}")
+            self.time_elapsed = 0
             self.running = new_pcb
         elif self.scheduling_algorithm == "Priority" and new_pcb < self.running:
             # self.logger.log(f"Priority switch to {new_pcb.pid}")
             self.add_to_queue(self.running)
+            self.time_elapsed = 0
             self.running = new_pcb
         else:
             # self.logger.log(f"Adding to queue {new_pcb.pid}")
