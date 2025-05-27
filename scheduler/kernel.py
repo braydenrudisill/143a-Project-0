@@ -11,17 +11,15 @@ PID = int
 - It is used to make it clear when a integer is expected to be a valid PID.
 """
 
-
-@dataclass(order=True)
+@dataclass(order=True, eq=True)
 class PCB:
     """Represents the PCB of processes.
     It is only here for your convenience and can be modified however you see fit.
     """
-    def __init__(self, priority, pid: PID, process_type: str = "Foreground"):
-        self.priority = priority
-        self.pid = pid
-        self.time_used = 0
-        self.process_type = process_type
+    priority: int | None
+    pid: PID
+    time_used: int = 0
+    process_type: str = "Foreground"
 
 
 @dataclass
@@ -62,6 +60,8 @@ class Kernel:
         new_pcb = PCB(priority, new_process, process_type=process_type)
 
         if self.scheduling_algorithm == "Multilevel":
+            self.logger.log(f"Multilevel checking")
+
             if process_type == "Foreground":
                 self.fg_queue.append(new_pcb)
             else:
@@ -69,11 +69,14 @@ class Kernel:
             if self.running == self.idle_pcb:
                 self.running = self.choose_next_process()
         elif self.running == self.idle_pcb:
+            self.logger.log(f"Was IDLE, now {new_pcb.pid}")
             self.running = new_pcb
         elif self.scheduling_algorithm == "Priority" and new_pcb < self.running:
+            self.logger.log(f"Priority switch to {new_pcb.pid}")
             self.add_to_queue(self.running)
             self.running = new_pcb
         else:
+            self.logger.log(f"Adding to queue {new_pcb.pid}")
             self.add_to_queue(new_pcb)
 
         return self.running.pid
@@ -188,6 +191,7 @@ class Kernel:
                 self.running.time_used = 0
                 self.ready_queue.append(self.running)
                 self.running = self.choose_next_process()
+                self.logger.log(f"Interrupting for {self.running.pid}")
 
         elif self.scheduling_algorithm == "Multilevel":
             self.level_time += 10
