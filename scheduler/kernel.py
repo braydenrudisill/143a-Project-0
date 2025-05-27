@@ -156,7 +156,7 @@ class Kernel:
 
         if self.sema_blocked[semaphore_id]:
             unblocked = self.sema_blocked[semaphore_id].pop(0)
-            if unblocked < self.running:
+            if self.scheduling_algorithm == "Priority" and unblocked < self.running:
                 self.add_to_queue(self.running)
                 self.running = unblocked
             else:
