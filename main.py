@@ -21,8 +21,8 @@ def main():
 
                 if out != expected:
                     print(f"FAIL {sim_file.stem}, line {i}: '{out}' was not '{expected}'")
-                else:
-                    print(f"PASS {sim_file.stem}, line {i}: '{out}'")
+                # else:
+                #     print(f"PASS {sim_file.stem}, line {i}: '{out}'")
 
 if __name__ == "__main__":
     main()

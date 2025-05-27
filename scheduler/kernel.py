@@ -121,6 +121,7 @@ class Kernel:
 
     def syscall_exit(self) -> PID:
         old_pid = self.running.pid
+        self.time_elapsed = 0
         self.running = self.choose_next_process()
         # self.logger.log(f"Process {old_pid} exited; switched to {self.running.pid}")
         return self.running.pid
@@ -143,6 +144,7 @@ class Kernel:
 
         if self.semaphores[semaphore_id] < 0:
             self.sema_blocked[semaphore_id].append(self.running)
+            self.time_elapsed = 0
             self.running = self.choose_next_process()
         return self.running.pid
 
@@ -193,13 +195,13 @@ class Kernel:
 
     def timer_interrupt(self) -> PID:
         self.time_elapsed += 10
-        self.running.time_used += 10
-
+        # self.logger.log(f"Interupted at {self.time_elapsed}")
         if self.scheduling_algorithm == "RR":
-            if self.running.time_used >= 40:
-                self.running.time_used = 0
-                self.ready_queue.append(self.running)
+            if self.time_elapsed >= 40:
+                self.time_elapsed = 0
+                self.add_to_queue(self.running)
                 self.running = self.choose_next_process()
+                # self.logger.log(f"{self.sema_blocked=}")
                 # self.logger.log(f"Interrupting for {self.running.pid}")
 
         elif self.scheduling_algorithm == "Multilevel":
