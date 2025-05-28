@@ -120,11 +120,17 @@ class Kernel:
                 self.current_level = "Foreground"
                 self.level_time = 0
                 return self.fg_queue.pop(0)
+
+        self.level_time = 0
         return self.idle_pcb
 
     def syscall_exit(self) -> PID:
         old_pid = self.running.pid
-        self.time_elapsed = 0
+
+        if self.scheduling_algorithm != "Multilevel":
+            self.time_elapsed = 0
+        elif self.current_level == "Foreground":
+            self.time_elapsed = 0
         self.running = self.choose_next_process()
         # self.logger.log(f"Process {old_pid} exited; switched to {self.running.pid}")
         return self.running.pid
@@ -153,9 +159,9 @@ class Kernel:
 
     def syscall_semaphore_v(self, semaphore_id: int) -> PID:
         self.semaphores[semaphore_id] += 1
-      # self.logger.log(f"{self.semaphores[semaphore_id]=}")
-      #   self.logger.log(f"{self.ready_queue=}")
-      #   self.logger.log(f"{self.running=}")
+        # self.logger.log(f"{self.semaphores[semaphore_id]=}")
+        # self.logger.log(f"{self.ready_queue=}")
+        # self.logger.log(f"{self.running=}")
         if self.scheduling_algorithm == "Priority":
             self.sema_blocked[semaphore_id].sort()
         elif self.scheduling_algorithm in {"RR", "FCFS"}:
@@ -201,9 +207,10 @@ class Kernel:
         return self.running.pid
 
     def timer_interrupt(self) -> PID:
-        self.time_elapsed += 10
-        # self.logger.log(f"Interupted at {self.time_elapsed}")
+        if self.running == self.idle_pcb:
+            return self.running.pid
         if self.scheduling_algorithm == "RR":
+            self.time_elapsed += 10
             if self.time_elapsed >= 40:
                 self.time_elapsed = 0
                 self.add_to_queue(self.running)
@@ -214,16 +221,39 @@ class Kernel:
         elif self.scheduling_algorithm == "Multilevel":
             self.level_time += 10
             if self.current_level == "Foreground":
-                if self.running.time_used >= 40:
-                    self.running.time_used = 0
-                    self.fg_queue.append(self.running)
-                    self.running = self.choose_next_process()
-            if self.level_time >= 200:
-                if (self.current_level == "Foreground" and self.bg_queue) or \
-                   (self.current_level == "Background" and self.fg_queue):
-                    self.running.time_used = 0
-                    self.current_level = "Background" if self.current_level == "Foreground" else "Foreground"
+                self.time_elapsed += 10
+            # self.logger.log(self.current_level)
+            # self.logger.log(f"{self.level_time=}")
+            # self.logger.log(f"{self.time_elapsed=}")
+
+
+            if (self.level_time >= 200 and
+                ((self.current_level == "Foreground" and self.bg_queue) or
+                   (self.current_level == "Background" and self.fg_queue))):
+
+                if self.current_level == "Foreground":
+                    if self.time_elapsed >= 40:
+                        self.time_elapsed = 0
+                        self.fg_queue.append(self.running)
+                    else:
+                        self.fg_queue.insert(0, self.running)
+                elif self.current_level == "Background":
+                    self.bg_queue.insert(0, self.running)
+
+                self.current_level = "Background" if self.current_level == "Foreground" else "Foreground"
+                self.level_time = 0
+
+                self.running = self.choose_next_process()
+            else:
+                if self.level_time >= 200:
                     self.level_time = 0
-                    self.running = self.choose_next_process()
+
+                if self.current_level == "Foreground":
+                    if self.time_elapsed >= 40:
+                        # self.logger.log(f"{self.fg_queue=}")
+                        self.time_elapsed = 0
+                        self.time_elapsed = 0
+                        self.fg_queue.append(self.running)
+                        self.running = self.choose_next_process()
 
         return self.running.pid
