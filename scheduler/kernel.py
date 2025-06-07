@@ -18,7 +18,6 @@ class PCB:
     """
     priority: int | None
     pid: PID
-    time_used: int = 0
     process_type: str = "Foreground"
 
 
