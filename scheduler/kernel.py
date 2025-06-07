@@ -1,9 +1,11 @@
 ### Fill in the following information before submitting
 # Group id: 3
 # Members: Brayden Rudisill, Rhea Jethvani
-
-from dataclasses import dataclass
+from heapq import heappop, heappush
+from dataclasses import dataclass, field
 from logging import Logger
+from typing import Literal
+
 
 PID = int
 """PID is just an integer.
@@ -21,17 +23,94 @@ class PCB:
 
 
 @dataclass
+class Semaphore:
+    value: int
+    waiting: list[PCB] = field(default_factory = list)
+    def acquire_by(self, pcb: PCB) -> bool:
+        """Returns false if process needs to wait."""
+        self.value -= 1
+
+        if should_wait := self.value < 0:
+            self.waiting.append(pcb)
+
+        return not should_wait
+
+    def release(self):
+        self.value += 1
+
+@dataclass
+class Mutex:
+    waiting: list[PCB] = field(default_factory = list)
+    owner: PCB | None = None
+    def lock_by(self, pcb: PCB) -> bool:
+        """Returns false if process needs to wait."""
+        if should_wait := self.owner is not None:
+            self.waiting.append(pcb)
+        else:
+            self.owner = pcb
+        return not should_wait
+
+    def release(self):
+        self.owner = None
+
+
+@dataclass
+class MMU:
+    available_memory : list[range] = field(default_factory = list)
+    reserved_memory: dict[PID, range] = field(default_factory = dict)
+    logger: Logger | None = None
+    def translate(self, address: int, pid: PID) -> int | None:
+        address -= 0x20000000
+        mem = self.reserved_memory[pid]
+
+        if not 0 <= address < len(mem):
+            return None
+        return mem.start + address
+
+    def reserve(self, num_bytes: int, pid: PID) -> bool:
+        for block in self.available_memory:
+            if len(block) >= num_bytes:
+                self.available_memory.remove(block)
+                self._add_available(range(block.start+num_bytes, block.stop))
+                self.reserved_memory[pid] = range(block.start, block.start + num_bytes)
+                return True
+        return False
+
+    def free(self, pid: PID):
+        new_mem = self.reserved_memory.pop(pid)
+
+        for block in self.available_memory:
+            if (new_mem.start - 1) in block:
+                self.available_memory.remove(block)
+                new_mem = range(block.start, new_mem.stop)
+
+        for block in self.available_memory:
+            if new_mem.stop in block:
+                self.available_memory.remove(block)
+                new_mem = range(new_mem.start, block.stop)
+
+        self._add_available(range(new_mem.start, new_mem.stop))
+
+    def _add_available(self, r):
+        self.available_memory.append(r)
+        self.available_memory.sort(key = lambda b: (len(b), b.start))
+
+
+@dataclass
 class Kernel:
     """Represents the Kernel of the simulation.
     - The simulator will create an instance of this object and use it to respond to
         syscalls and interrupts.
     - DO NOT modify the name of this class or remove it."""
-    def __init__(self, scheduling_algorithm: str, logger: Logger):
+    def __init__(self, scheduling_algorithm: str, logger: Logger, mmu: MMU, memory_size: int):
         self.scheduling_algorithm = scheduling_algorithm
         self.logger = logger
+        self.mmu = mmu
+        self.mmu.available_memory = [range(memory_size)]
+        self.mmu.logger = logger
+        self.mmu.reserve(10_485_760, 0)  # 10 MiB
 
         self.ready_queue: list[PCB] = []
-        self.waiting_queue: list[PCB] = []
         self.idle_pcb: PCB = PCB(None, 0)
         self.running: PCB = self.idle_pcb
 
@@ -41,24 +120,23 @@ class Kernel:
         self.bg_queue: list[PCB] = []
         self.current_level: str = "Foreground"
 
-        self.semaphores: dict[int, int] = {}
-        self.sema_blocked: dict[int, list[PCB]] = {}
-        self.mutexes: dict[int, bool] = {}
-        self.mutex_blocked: dict[int, list[PCB]] = {}
-        self.mutex_owner: dict[int, list[PCB]] = {}
+        self.semaphores: dict[int, Semaphore] = {}
+        self.mutexes: dict[int, Mutex] = {}
 
     
-    def new_process_arrived(self, new_process: PID, priority: int, process_type: str) -> PID:
+    def new_process_arrived(self, new_process: PID, priority: int, process_type: str, memory_needed: int) -> PID | Literal[-1]:
         """Triggered every time a new process has arrived.
         - new_process is this process's PID.
         - priority is the priority of new_process.
         - DO NOT rename or delete this method. DO NOT change its arguments.
         """
-        # self.logger.log(f"Ready queue len: {len(self.ready_queue)} when process {new_process} arrived")
+
+        if not self.mmu.reserve(memory_needed, new_process):
+            return -1
+
         new_pcb = PCB(priority, new_process, process_type=process_type)
 
         if self.scheduling_algorithm == "Multilevel":
-            # self.logger.log(f"Multilevel checking")
 
             if process_type == "Foreground":
                 self.fg_queue.append(new_pcb)
@@ -84,7 +162,6 @@ class Kernel:
 
     def add_to_queue(self, pcb: PCB):
         if self.scheduling_algorithm == "Priority":
-            from heapq import heappush
             heappush(self.ready_queue, pcb)
         else:
             self.ready_queue.append(pcb)
@@ -102,7 +179,6 @@ class Kernel:
         if self.scheduling_algorithm in ["FCFS", "RR"]:
             return self.ready_queue.pop(0)
         if self.scheduling_algorithm == "Priority":
-            from heapq import heappop
             return heappop(self.ready_queue)
     
     def choose_multilevel(self):
@@ -125,14 +201,13 @@ class Kernel:
         return self.idle_pcb
 
     def syscall_exit(self) -> PID:
-        old_pid = self.running.pid
-
+        self.mmu.free(self.running.pid)
         if self.scheduling_algorithm != "Multilevel":
             self.time_elapsed = 0
         elif self.current_level == "Foreground":
             self.time_elapsed = 0
+
         self.running = self.choose_next_process()
-        # self.logger.log(f"Process {old_pid} exited; switched to {self.running.pid}")
         return self.running.pid
 
     def syscall_set_priority(self, new_priority: int) -> PID:
@@ -144,66 +219,67 @@ class Kernel:
         return self.running.pid
 
     def syscall_init_semaphore(self, semaphore_id: int, initial_value: int):
-        self.semaphores[semaphore_id] = initial_value
-        self.sema_blocked[semaphore_id] = []
+        self.semaphores[semaphore_id] = Semaphore(initial_value)
 
     def syscall_semaphore_p(self, semaphore_id: int) -> PID:
-        self.semaphores[semaphore_id] -= 1
-      # self.logger.log(f"{self.semaphores[semaphore_id]=}")
+        if self.semaphores[semaphore_id].acquire_by(self.running):
+            return self.running.pid
 
-        if self.semaphores[semaphore_id] < 0:
-            self.sema_blocked[semaphore_id].append(self.running)
-            self.time_elapsed = 0
-            self.running = self.choose_next_process()
+        self.set_running(self.choose_next_process())
         return self.running.pid
 
     def syscall_semaphore_v(self, semaphore_id: int) -> PID:
-        self.semaphores[semaphore_id] += 1
-        # self.logger.log(f"{self.semaphores[semaphore_id]=}")
-        # self.logger.log(f"{self.ready_queue=}")
-        # self.logger.log(f"{self.running=}")
-        if self.scheduling_algorithm == "Priority":
-            self.sema_blocked[semaphore_id].sort()
-        elif self.scheduling_algorithm in {"RR", "FCFS"}:
-            self.sema_blocked[semaphore_id].sort(key = lambda p: p.pid)
-            # self.logger.log(f"SORTED: {self.sema_blocked[semaphore_id]}")
+        sem = self.semaphores[semaphore_id]
+        sem.release()
 
-        if self.sema_blocked[semaphore_id]:
-            unblocked = self.sema_blocked[semaphore_id].pop(0)
-            if self.scheduling_algorithm == "Priority" and unblocked < self.running:
-                self.add_to_queue(self.running)
-                self.time_elapsed = 0
-                self.running = unblocked
-            else:
-                self.add_to_queue(unblocked)
+        if self.scheduling_algorithm == "Priority":
+            if sem.waiting:
+                sem.waiting.sort()
+                next_p = sem.waiting.pop(0)
+                if self.running >= next_p:
+                    self.add_to_queue(self.running)
+                    self.set_running(next_p)
+                else:
+                    self.add_to_queue(next_p)
+            return self.running.pid
+
+        if sem.waiting:
+            sem.waiting.sort(key=lambda pcb: pcb.pid)
+            self.add_to_queue(sem.waiting.pop(0))
 
         return self.running.pid
 
     def syscall_init_mutex(self, mutex_id: int):
-        self.mutexes[mutex_id] = True
-        self.mutex_blocked[mutex_id] = []
-        self.mutex_owner[mutex_id] = None
+        self.mutexes[mutex_id] = Mutex()
 
     def syscall_mutex_lock(self, mutex_id: int) -> PID:
-        if self.mutexes[mutex_id]:
-            self.mutexes[mutex_id] = False
-            self.mutex_owner[mutex_id] = self.running
-        else:
-            self.mutex_blocked[mutex_id].append(self.running)
-            self.running = self.choose_next_process()
+        if not self.mutexes[mutex_id].lock_by(self.running):
+            self.set_running(self.choose_next_process())
+
         return self.running.pid
 
+    def set_running(self, pcb: PCB):
+        self.time_elapsed = 0
+        self.running = pcb
+
     def syscall_mutex_unlock(self, mutex_id: int) -> PID:
-        if self.mutex_owner.get(mutex_id) == self.running:
-            if self.mutex_blocked[mutex_id]:
+
+        mut = self.mutexes[mutex_id]
+        if mut.owner is self.running:
+            if mut.waiting:
                 if self.scheduling_algorithm == "Priority":
-                    self.mutex_blocked[mutex_id].sort()
-                next_proc = self.mutex_blocked[mutex_id].pop(0)
-                self.mutex_owner[mutex_id] = next_proc
-                self.add_to_queue(next_proc)
+                    mut.waiting.sort()
+
+                next_proc = mut.waiting.pop(0)
+                mut.owner = next_proc
+                if self.scheduling_algorithm == "Priority" and next_proc < self.running:
+                    self.add_to_queue(self.running)
+                    self.set_running(next_proc)
+                else:
+                    self.add_to_queue(next_proc)
             else:
-                self.mutexes[mutex_id] = True
-                self.mutex_owner[mutex_id] = None
+                mut.owner = None
+
         return self.running.pid
 
     def timer_interrupt(self) -> PID:
@@ -212,19 +288,13 @@ class Kernel:
         if self.scheduling_algorithm == "RR":
             self.time_elapsed += 10
             if self.time_elapsed >= 40:
-                self.time_elapsed = 0
                 self.add_to_queue(self.running)
-                self.running = self.choose_next_process()
-                # self.logger.log(f"{self.sema_blocked=}")
-                # self.logger.log(f"Interrupting for {self.running.pid}")
+                self.set_running(self.choose_next_process())
 
         elif self.scheduling_algorithm == "Multilevel":
             self.level_time += 10
             if self.current_level == "Foreground":
                 self.time_elapsed += 10
-            # self.logger.log(self.current_level)
-            # self.logger.log(f"{self.level_time=}")
-            # self.logger.log(f"{self.time_elapsed=}")
 
 
             if (self.level_time >= 200 and
@@ -250,10 +320,7 @@ class Kernel:
 
                 if self.current_level == "Foreground":
                     if self.time_elapsed >= 40:
-                        # self.logger.log(f"{self.fg_queue=}")
-                        self.time_elapsed = 0
-                        self.time_elapsed = 0
                         self.fg_queue.append(self.running)
-                        self.running = self.choose_next_process()
+                        self.set_running(self.choose_next_process())
 
         return self.running.pid
