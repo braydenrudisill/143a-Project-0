@@ -53,19 +53,15 @@ class Mutex:
     def release(self):
         self.owner = None
 
-
 @dataclass
 class MMU:
     available_memory : list[range] = field(default_factory = list)
     reserved_memory: dict[PID, range] = field(default_factory = dict)
     logger: Logger | None = None
     def translate(self, address: int, pid: PID) -> int | None:
-        address -= 0x20000000
         mem = self.reserved_memory[pid]
-
-        if not 0 <= address < len(mem):
-            return None
-        return mem.start + address
+        phys_addr = address - 0x20000000 + mem.start
+        return phys_addr if phys_addr in mem else None
 
     def reserve(self, num_bytes: int, pid: PID) -> bool:
         for block in self.available_memory:
@@ -77,19 +73,19 @@ class MMU:
         return False
 
     def free(self, pid: PID):
-        new_mem = self.reserved_memory.pop(pid)
+        freed_block = self.reserved_memory.pop(pid)
 
+        remaining_blocks = []
         for block in self.available_memory:
-            if (new_mem.start - 1) in block:
-                self.available_memory.remove(block)
-                new_mem = range(block.start, new_mem.stop)
+            if block.stop == freed_block.start:
+                freed_block = range(block.start, freed_block.stop)
+            elif block.start == freed_block.stop:
+                freed_block = range(freed_block.start, block.stop)
+            else:
+                remaining_blocks.append(block)
 
-        for block in self.available_memory:
-            if new_mem.stop in block:
-                self.available_memory.remove(block)
-                new_mem = range(new_mem.start, block.stop)
-
-        self._add_available(range(new_mem.start, new_mem.stop))
+        self.available_memory = remaining_blocks
+        self._add_available(freed_block)
 
     def _add_available(self, r):
         self.available_memory.append(r)
